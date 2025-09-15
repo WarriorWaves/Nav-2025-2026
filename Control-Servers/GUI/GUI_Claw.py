@@ -18,7 +18,7 @@ class BarChart(QFrame):
         self.values = values
         self.update()
 
-    def paintEvent(self, even
+    def paintEvent(self, even):
         painter = QPainter(self)
         bar_width = self.width() // len(self.values)
         max_height = self.height() - 20
@@ -74,7 +74,7 @@ class MainWindow(QWidget):
 
         # Set background color
         palette = self.palette()
-        palette.setColor(QPalette.Window, QColor("black"))
+        palette.setColor(QPalette.Window, QColor("pink"))
         self.setPalette(palette)
 
         # Main horizontal layout
