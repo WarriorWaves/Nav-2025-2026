@@ -18,6 +18,10 @@ RIGHT_TRIGGER = 5
 LEFT_BUMPER = 9
 RIGHT_BUMPER = 10
 TRIGGER_THRESHOLD = 0.9
+
+# Command timing settings to prevent servo overload
+COMMAND_DELAY = 0.1  # 100ms delay between commands (adjust as needed)
+SERIAL_DELAY = 10    # 10ms delay after each serial write
 os.environ.update({
     "SDL_VIDEO_ALLOW_SCREENSAVER": "1",
     "SDL_TRIGGER_ALLOW_BACKGROUND_EVENTS": "1",
@@ -37,7 +41,13 @@ class MainProgram:
         self.claw_position = CLAW_CLOSED
         self.roll_position = 90
         self.pitch_position = 90
-        self.claw_opened = False 
+        self.claw_opened = False
+        
+        # State tracking to prevent command spam
+        self.last_claw_command = None
+        self.last_roll_command = None
+        self.command_delay = COMMAND_DELAY  # Configurable delay between commands
+        self.last_command_time = 0 
 
     def init_controller(self):
         pygame.joystick.init()
@@ -58,6 +68,7 @@ class MainProgram:
 
     def run(self):
         print("Running. Use triggers to open/close claw, bumpers to roll, Up/triangle to pitch.")
+        print(f"Command delay: {COMMAND_DELAY}s, Serial delay: {SERIAL_DELAY}ms")
         clock = pygame.time.Clock()
         while True:
             self.handle_inputs()
@@ -67,17 +78,30 @@ class MainProgram:
             clock.tick(60)
 
     def handle_inputs(self):
+        current_time = pygame.time.get_ticks() / 1000.0  # Convert to seconds
+        
+        # Only process commands if enough time has passed since last command
+        if current_time - self.last_command_time < self.command_delay:
+            return
+            
         left_trigger = self.controller.get_axis(LEFT_TRIGGER)
         right_trigger = self.controller.get_axis(RIGHT_TRIGGER)
 
+        # Claw control with debouncing
         if left_trigger > TRIGGER_THRESHOLD and self.claw_position != CLAW_CLOSED:
             self.adjust_claw(CLAW_CLOSED)
+            self.last_command_time = current_time
         elif right_trigger > TRIGGER_THRESHOLD and self.claw_position != CLAW_OPEN:
             self.adjust_claw(CLAW_OPEN)
+            self.last_command_time = current_time
+            
+        # Roll control with debouncing
         if self.controller.get_button(LEFT_BUMPER) and self.roll_position > ROLL_MIN:
             self.rotate_roll(-1)
+            self.last_command_time = current_time
         elif self.controller.get_button(RIGHT_BUMPER) and self.roll_position < ROLL_MAX:
             self.rotate_roll(1)
+            self.last_command_time = current_time
 
     def adjust_claw(self, position):
         if self.claw_position != position:
@@ -101,6 +125,8 @@ class MainProgram:
         try:
             if self.arduino:
                 self.arduino.write(command.encode('utf-8'))
+                # Small delay to prevent overwhelming the Arduino
+                pygame.time.delay(SERIAL_DELAY)  # Configurable delay
         except Exception as e:
             print(f"Error sending data to Arduino: {e}")
 

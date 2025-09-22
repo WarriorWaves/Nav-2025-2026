@@ -4,7 +4,6 @@ from PyQt5.QtWidgets import QApplication, QWidget, QHBoxLayout, QVBoxLayout, QLa
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QPalette, QColor, QPainter, QImage, QPixmap
 
-
 class BarChart(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -44,25 +43,93 @@ class BarChart(QFrame):
 class CameraFeed(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.cap = cv2.VideoCapture(0)  # default camera
+        self.cap = None
+        self.camera_available = False
         self.setScaledContents(True)
+        
+        # Try to initialize camera with error handling
+        self.init_camera()
 
         # Timer to refresh frames
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_frame)
         self.timer.start(30)  # ~30 FPS
+    
+    def init_camera(self):
+        """Initialize camera with fallback options - optimized for Arducam UC-648"""
+        print("Initializing camera for Arducam UC-648 Rev.F3...")
+        
+        # Try different camera indices (prioritize Arducam UC-648 at index 1)
+        for camera_index in [1, 0, 2, 3]:
+            try:
+                print(f"Trying camera index {camera_index}...")
+                self.cap = cv2.VideoCapture(camera_index)
+                
+                if self.cap.isOpened():
+                    # Set some properties for better Arducam compatibility
+                    self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                    self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+                    self.cap.set(cv2.CAP_PROP_FPS, 30)
+                    
+                    # Test if we can actually read a frame
+                    ret, frame = self.cap.read()
+                    if ret and frame is not None:
+                        self.camera_available = True
+                        width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        fps = self.cap.get(cv2.CAP_PROP_FPS)
+                        print(f"✅ Arducam UC-648 initialized successfully!")
+                        print(f"   Camera index: {camera_index}")
+                        print(f"   Resolution: {width}x{height}")
+                        print(f"   FPS: {fps}")
+                        return
+                    else:
+                        print(f"   ❌ Camera {camera_index}: Cannot read frames")
+                        self.cap.release()
+                        self.cap = None
+                else:
+                    print(f"   ❌ Camera {camera_index}: Cannot open")
+                    if self.cap:
+                        self.cap.release()
+                        self.cap = None
+            except Exception as e:
+                print(f"   ❌ Camera {camera_index}: Error - {e}")
+                if self.cap:
+                    self.cap.release()
+                    self.cap = None
+        
+        # If no camera found, show error message
+        if not self.camera_available:
+            print("❌ No camera detected. Troubleshooting for Arducam UC-648:")
+            print("1. Check USB connection - try a different USB port")
+            print("2. Verify in Device Manager: 'Arducam USB Camera' should be listed")
+            print("3. Close other applications that might be using the camera")
+            print("4. Check Windows camera permissions in Settings > Privacy > Camera")
+            print("5. Try unplugging and reconnecting the camera")
+            self.setText("Arducam UC-648 Not Found\nCheck USB connection")
+            self.setStyleSheet("color: red; font-size: 14px; background-color: #333; padding: 20px;")
 
     def update_frame(self):
-        ret, frame = self.cap.read()
-        if ret:
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
-            self.setPixmap(QPixmap.fromImage(qimg))
+        if not self.camera_available or self.cap is None:
+            return
+        
+        try:
+            ret, frame = self.cap.read()
+            if ret and frame is not None:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                h, w, ch = frame.shape
+                bytes_per_line = ch * w
+                qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+                self.setPixmap(QPixmap.fromImage(qimg))
+        except Exception as e:
+            print(f"Error reading camera frame: {e}")
+            # Try to reinitialize camera
+            self.camera_available = False
+            self.init_camera()
 
     def closeEvent(self, event):
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
 
 
 class MainWindow(QWidget):
