@@ -46,7 +46,7 @@ class MainProgram:
             print("No controllers detected. Please connect a PS5 controller.")
             pygame.time.delay(1000)
         self.controller = pygame.joystick.Joystick(0)
-        self.controller.init()
+        self.controller.init()  
         print(f"Connected to controller: {self.controller.get_name()}")
 
     def init_serial(self):
