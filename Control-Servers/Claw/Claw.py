@@ -5,16 +5,16 @@ import pygame
 from pygame.locals import *
 import time
 
-SERIAL_PORT = 'COM5' 
+SERIAL_PORT = 'COM5'
 BAUD_RATE = 9600
 SEND_SERIAL = True
 
-CLAW_CLOSED = 90
+CLAW_CLOSED = 0
 CLAW_OPEN = 180
 ROLL_MIN = 0
 ROLL_MAX = 180
-ROLL_SPEED = 1     # degrees per frame
-CLAW_SPEED = 1.5   # degrees per frame
+ROLL_SPEED = 1
+CLAW_SPEED = 1.5
 
 LEFT_TRIGGER = 4
 RIGHT_TRIGGER = 5
@@ -39,6 +39,8 @@ class MainProgram:
 
         self.claw_position = CLAW_CLOSED
         self.roll_position = 90
+        self.last_claw_sent = round(self.claw_position)
+        self.last_roll_sent = round(self.roll_position)
 
     def init_controller(self):
         pygame.joystick.init()
@@ -46,13 +48,20 @@ class MainProgram:
             print("No controllers detected. Please connect a PS5 controller.")
             pygame.time.delay(1000)
         self.controller = pygame.joystick.Joystick(0)
-        self.controller.init()  
+        self.controller.init()
         print(f"Connected to controller: {self.controller.get_name()}")
 
     def init_serial(self):
         try:
-            self.arduino = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
+            self.arduino = serial.Serial(
+                SERIAL_PORT,
+                BAUD_RATE,
+                timeout=1,
+                write_timeout=1
+            )
             print(f"Connected to Arduino on {SERIAL_PORT}")
+            time.sleep(2)
+            self.arduino.reset_input_buffer()
         except serial.SerialException as e:
             print(f"Could not open serial port {SERIAL_PORT}: {e}")
             self.quit(1)
@@ -69,34 +78,37 @@ class MainProgram:
             clock.tick(60)
 
     def handle_inputs(self):
-        # Read triggers
         left_trigger = self.controller.get_axis(LEFT_TRIGGER)
         right_trigger = self.controller.get_axis(RIGHT_TRIGGER)
 
-        # Determine target claw position
         target_claw = self.claw_position
         if left_trigger > TRIGGER_THRESHOLD:
-            target_claw = CLAW_CLOSED 
+            target_claw = CLAW_CLOSED
         elif right_trigger > TRIGGER_THRESHOLD:
             target_claw = CLAW_OPEN
 
-        # Gradually move claw
         if self.claw_position < target_claw:
             self.claw_position = min(self.claw_position + CLAW_SPEED, target_claw)
         elif self.claw_position > target_claw:
             self.claw_position = max(self.claw_position - CLAW_SPEED, target_claw)
 
-        self.send_servo_command("claw", round(self.claw_position))
+        claw_pos_rounded = round(self.claw_position)
+        if claw_pos_rounded != self.last_claw_sent:
+            self.send_servo_command("claw", claw_pos_rounded)
+            self.last_claw_sent = claw_pos_rounded
 
-        # Roll control
         target_roll = self.roll_position
         if self.controller.get_button(LEFT_BUMPER):
-            target_roll = max(ROLL_MIN, self.roll_position - ROLL_SPEED)
-        elif self.controller.get_button(RIGHT_BUMPER):
             target_roll = min(ROLL_MAX, self.roll_position + ROLL_SPEED)
+        elif self.controller.get_button(RIGHT_BUMPER):
+            target_roll = max(ROLL_MIN, self.roll_position - ROLL_SPEED)
 
         self.roll_position = target_roll
-        self.send_servo_command("roll", round(self.roll_position))
+
+        roll_pos_rounded = round(self.roll_position)
+        if roll_pos_rounded != self.last_roll_sent:
+            self.send_servo_command("roll", roll_pos_rounded)
+            self.last_roll_sent = roll_pos_rounded
 
     def send_servo_command(self, servo, position):
         if not SEND_SERIAL or self.arduino is None:

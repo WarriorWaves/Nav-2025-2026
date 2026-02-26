@@ -56,9 +56,7 @@ void processCommand(String command) {
   if (servoName == "claw") {
     int us = map(targetPos, 0, 180, SERVO_MIN, SERVO_MAX);
     clawServo.writeMicroseconds(us);
-    Serial.println("Claw moved to " + String(targetPos)); // debug confirmation
   } else if (servoName == "roll") {
     rollServo.write(targetPos);
-    Serial.println("Roll moved to " + String(targetPos)); // debug confirmation
   }
 }
