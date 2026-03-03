@@ -5,6 +5,7 @@ import pygame
 import time
 
 SERIAL_PORT = "/dev/cu.usbmodem2017_2_251"
+SERIAL_PORT = 'COM5'
 BAUD_RATE = 9600
 SEND_SERIAL = True
 
@@ -13,8 +14,9 @@ CLAW_OPEN = 180
 ROLL_MIN = 0
 ROLL_MAX = 180
 
+
 ROLL_SPEED = 1
-CLAW_SPEED = 2
+CLAW_SPEED = 1.5
 
 LEFT_TRIGGER = 4
 RIGHT_TRIGGER = 5
@@ -34,6 +36,8 @@ class MainProgram:
 
         self.claw_position = CLAW_OPEN
         self.roll_position = 90
+        self.last_claw_sent = round(self.claw_position)
+        self.last_roll_sent = round(self.roll_position)
 
     def init_controller(self):
         pygame.joystick.init()
@@ -43,13 +47,21 @@ class MainProgram:
 
         self.controller = pygame.joystick.Joystick(0)
         self.controller.init()
+
         print(f"Connected to {self.controller.get_name()}")
 
     def init_serial(self):
         try:
-            self.arduino = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-            time.sleep(2)  # allow Arduino reset
-            print("Connected to Arduino")
+            self.arduino = serial.Serial(
+                SERIAL_PORT,
+                BAUD_RATE,
+                timeout=1,
+                write_timeout=1
+            )
+            print(f"Connected to Arduino on {SERIAL_PORT}")
+            time.sleep(2)
+            self.arduino.reset_input_buffer()
+
         except serial.SerialException as e:
             print(f"Serial error: {e}")
             self.quit(1)
@@ -71,6 +83,7 @@ class MainProgram:
         left_trigger = self.controller.get_axis(LEFT_TRIGGER)
         right_trigger = self.controller.get_axis(RIGHT_TRIGGER)
 
+
         # Determine claw target
         target_claw = self.claw_position
 
@@ -79,11 +92,13 @@ class MainProgram:
         elif right_trigger > TRIGGER_THRESHOLD:
             target_claw = CLAW_OPEN
 
+
         # Smooth movement
         if self.claw_position < target_claw:
             self.claw_position = min(self.claw_position + CLAW_SPEED, target_claw)
         elif self.claw_position > target_claw:
             self.claw_position = max(self.claw_position - CLAW_SPEED, target_claw)
+
 
         self.send_servo_command("claw", int(self.claw_position))
 
@@ -94,6 +109,24 @@ class MainProgram:
             self.roll_position = min(ROLL_MAX, self.roll_position + ROLL_SPEED)
 
         self.send_servo_command("roll", int(self.roll_position))
+
+        claw_pos_rounded = round(self.claw_position)
+        if claw_pos_rounded != self.last_claw_sent:
+            self.send_servo_command("claw", claw_pos_rounded)
+            self.last_claw_sent = claw_pos_rounded
+
+        target_roll = self.roll_position
+        if self.controller.get_button(LEFT_BUMPER):
+            target_roll = min(ROLL_MAX, self.roll_position + ROLL_SPEED)
+        elif self.controller.get_button(RIGHT_BUMPER):
+            target_roll = max(ROLL_MIN, self.roll_position - ROLL_SPEED)
+
+        self.roll_position = target_roll
+
+        roll_pos_rounded = round(self.roll_position)
+        if roll_pos_rounded != self.last_roll_sent:
+            self.send_servo_command("roll", roll_pos_rounded)
+            self.last_roll_sent = roll_pos_rounded
 
     def send_servo_command(self, servo, position):
         if not SEND_SERIAL or self.arduino is None:
@@ -113,4 +146,8 @@ class MainProgram:
         sys.exit(status)
 
 if __name__ == "__main__":
+
     MainProgram().run()
+
+    program = MainProgram()
+    program.run()
