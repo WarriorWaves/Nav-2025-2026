@@ -21,8 +21,8 @@ def start_video_feed():
             layout.addWidget(self.video_label)
             self.setLayout(layout)
 
-            # OpenCV video capture
-            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # Change to 1 if needed
+            # OpenCV video captures
+            self.cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)  # Change to 1 if needed
             if not self.cap.isOpened():
                 print("Error: Camera not found!")
                 sys.exit()

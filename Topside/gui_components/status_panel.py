@@ -2,7 +2,7 @@ import sys
 import cv2
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QFrame
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap, QPalette, QColor
+from PyQt5.QtGui import QImage, QPixmap, QPalette, QColor, QPainter
 
 class StatusPanel(QFrame):
     def __init__(self, parent=None):
@@ -28,6 +28,33 @@ class StatusPanel(QFrame):
             self.labels[name].setText(f"{name}: {value}")
             color = "#00ff00" if value == "OK" else "#ffff00" if value == "WARN" else "#ff0000"
             self.labels[name].setStyleSheet(f"color: {color}; font-weight: bold;")
+
+class GraphWidget(QFrame):
+    def __init__(self):
+        super().__init__()
+        self.values = [0] * 6
+        self.setFixedHeight(150)
+        self.setStyleSheet("background-color: #222222; border: 2px solid black;")
+
+    def set_values(self, values):
+        self.values = values
+        self.update()
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        w = self.width()
+        h = self.height()
+        bar_width = w / len(self.values)
+        for i, val in enumerate(self.values):
+            bar_height = (val / 100) * (h - 10)
+            painter.fillRect(
+                int(i * bar_width + 5),
+                int(h - bar_height - 5),
+                int(bar_width - 10),
+                int(bar_height),
+                QColor("#00ff00")
+            )
 
 class ROVGui(QWidget):
     def __init__(self):
@@ -55,16 +82,15 @@ class ROVGui(QWidget):
             sld = QSlider(Qt.Horizontal)
             sld.setRange(0, 100)
             sld.valueChanged.connect(lambda val, n=name, l=lbl: l.setText(f"{n}: {val}"))
+            sld.valueChanged.connect(self.update_graph)
             side_layout.addWidget(lbl)
             side_layout.addWidget(sld)
             self.sliders[name] = (lbl, sld)
-        self.graph = QLabel()
-        self.graph.setFixedHeight(150)
-        self.graph.setStyleSheet("background-color: #222222; border: 2px solid black;")
+        self.graph = GraphWidget()
         side_layout.addWidget(self.graph)
         self.cap = None
         for i in range(5):
-            temp_cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+            temp_cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
             if temp_cap.isOpened():
                 self.cap = temp_cap
                 print(f"Camera found at index {i}")
@@ -78,6 +104,10 @@ class ROVGui(QWidget):
             self.timer.start(30)
         else:
             print("Warning: No camera found! Video feed disabled.")
+
+    def update_graph(self):
+        values = [self.sliders[n][1].value() for n in self.sliders]
+        self.graph.set_values(values)
 
     def update_frame(self):
         if self.cap is None:
