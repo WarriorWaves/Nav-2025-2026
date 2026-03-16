@@ -5,57 +5,61 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 
 
-def start_video_feed():
-    class CameraViewer(QWidget):
-        def __init__(self):
-            super().__init__()
+class CameraWidget(QWidget):
+    """Embeddable camera widget using OpenCV. Create and add to a layout.
 
-            self.setWindowTitle("Camera Feed")
-            self.setGeometry(100, 100, 800, 600)
+    Use `start()` to begin capture (or the widget will start automatically when created).
+    """
 
-            # Label to display video
-            self.video_label = QLabel(self)
-            self.video_label.setAlignment(Qt.AlignCenter)
+    def __init__(self, device_index=0, parent=None):
+        super().__init__(parent)
+        self.video_label = QLabel(self)
+        self.video_label.setAlignment(Qt.AlignCenter)
+        layout = QVBoxLayout()
+        layout.addWidget(self.video_label)
+        self.setLayout(layout)
 
-            layout = QVBoxLayout()
-            layout.addWidget(self.video_label)
-            self.setLayout(layout)
+        self.cap = cv2.VideoCapture(device_index, cv2.CAP_AVFOUNDATION)
+        if not self.cap.isOpened():
+            print("Warning: Camera not found at index", device_index)
+            self.cap = None
+            return
 
-            # OpenCV video captures
-            self.cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)  # Change to 1 if needed
-            if not self.cap.isOpened():
-                print("Error: Camera not found!")
-                sys.exit()
-
-            # Optional camera settings
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        # Optional camera settings
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        try:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
             self.cap.set(cv2.CAP_PROP_GAIN, 20)
+        except Exception:
+            pass
 
-            # Timer to update frames
-            self.timer = QTimer()
-            self.timer.timeout.connect(self.update_frame)
-            self.timer.start(30)  # ~33 FPS
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_frame)
+        self.timer.start(30)
 
-        def update_frame(self):
-            ret, frame = self.cap.read()
-            if not ret:
-                return
+    def update_frame(self):
+        if not self.cap:
+            return
+        ret, frame = self.cap.read()
+        if not ret:
+            return
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = frame.shape
+        bytes_per_line = ch * w
+        qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        self.video_label.setPixmap(QPixmap.fromImage(qimg))
 
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            h, w, ch = frame.shape
-            bytes_per_line = ch * w
-            qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+    def closeEvent(self, event):
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
+        event.accept()
 
-            self.video_label.setPixmap(QPixmap.fromImage(qimg))
 
-        def closeEvent(self, event):
-            if self.cap.isOpened():
-                self.cap.release()
-            event.accept()
-
+def start_video_feed():
     app = QApplication(sys.argv)
-    window = CameraViewer()
+    window = CameraWidget()
+    window.setWindowTitle("Camera Feed")
+    window.resize(800, 600)
     window.show()
     sys.exit(app.exec_())
 

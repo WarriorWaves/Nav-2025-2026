@@ -1,8 +1,18 @@
 import sys
-import cv2
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSlider, QFrame
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap, QPalette, QColor, QPainter
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPalette, QColor, QPainter
+
+# Import controller and camera widget from the same package; support running as script
+try:
+    from controller_input import PS5ControllerThread
+except Exception:
+    from .controller_input import PS5ControllerThread
+
+try:
+    from video_display import CameraWidget
+except Exception:
+    from .video_display import CameraWidget
 
 class StatusPanel(QFrame):
     def __init__(self, parent=None):
@@ -66,12 +76,13 @@ class ROVGui(QWidget):
         self.setPalette(palette)
         main_layout = QHBoxLayout()
         self.setLayout(main_layout)
-        self.video_label = QLabel(self)
-        self.video_label.setFixedSize(640, 480)
-        self.video_label.setFrameShape(QFrame.Box)
-        self.video_label.setLineWidth(5)
-        self.video_label.setStyleSheet("border-color: #333333; background-color: black;")
-        main_layout.addWidget(self.video_label, stretch=3)
+        # Embedded camera widget
+        self.camera_widget = CameraWidget()
+        try:
+            self.camera_widget.setFixedSize(640, 480)
+        except Exception:
+            pass
+        main_layout.addWidget(self.camera_widget, stretch=3)
         side_layout = QVBoxLayout()
         main_layout.addLayout(side_layout, stretch=1)
         self.status_panel = StatusPanel()
@@ -89,41 +100,37 @@ class ROVGui(QWidget):
         self.graph = GraphWidget()
         side_layout.addWidget(self.graph)
         self.cap = None
-        for i in range(5):
-            temp_cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
-            if temp_cap.isOpened():
-                self.cap = temp_cap
-                print(f"Camera found at index {i}")
-                break
-        if self.cap is not None:
-            self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-            self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
-            self.cap.set(cv2.CAP_PROP_GAIN, 20)
-            self.timer = QTimer()
-            self.timer.timeout.connect(self.update_frame)
-            self.timer.start(30)
-        else:
-            print("Warning: No camera found! Video feed disabled.")
+        # Start PS5 controller thread (if a controller is connected)
+        self.controller = PS5ControllerThread()
+        self.controller.valuesChanged.connect(self.on_controller_values)
+        self.controller.statusChanged.connect(self.status_panel.update_status)
+        self.controller.start()
 
     def update_graph(self):
         values = [self.sliders[n][1].value() for n in self.sliders]
         self.graph.set_values(values)
 
-    def update_frame(self):
-        if self.cap is None:
-            return
-        ret, frame = self.cap.read()
-        if not ret:
-            return
-        h, w, ch = frame.shape
-        bytes_per_line = ch * w
-        qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_BGR888)
-        pixmap = QPixmap.fromImage(qimg)
-        self.video_label.setPixmap(pixmap.scaled(self.video_label.width(), self.video_label.height(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+    def on_controller_values(self, values: dict):
+        # Update sliders from controller axis values
+        for name, val in values.items():
+            if name in self.sliders:
+                _, sld = self.sliders[name]
+                # avoid recursive signals by blocking signals temporarily
+                sld.blockSignals(True)
+                sld.setValue(int(val))
+                sld.blockSignals(False)
 
     def closeEvent(self, event):
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
+        try:
+            if self.controller:
+                self.controller.stop()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'camera_widget') and self.camera_widget is not None:
+                self.camera_widget.close()
+        except Exception:
+            pass
         event.accept()
 
 if __name__ == "__main__":
