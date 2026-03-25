@@ -4,11 +4,6 @@ from PyQt5.QtCore import QThread, pyqtSignal
 
 
 class PS5ControllerThread(QThread):
-    """Polls a PS5 controller (via pygame) on a background QThread.
-
-    Emits `valuesChanged` with a dict mapping slider names to 0-100 ints.
-    Emits `statusChanged` with (name, value) for simple status toggles.
-    """
 
     valuesChanged = pyqtSignal(dict)
     statusChanged = pyqtSignal(str, str)
@@ -68,8 +63,4 @@ class PS5ControllerThread(QThread):
 
 
 def read_controller():
-    """Convenience factory for non-Qt code — returns an instance of the thread.
-
-    Caller should call `start()` and later `stop()`.
-    """
     return PS5ControllerThread()
