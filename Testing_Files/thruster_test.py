@@ -64,7 +64,7 @@ def safety_check():
     if ans != "YES":
         print("\n  Aborted.")
         sys.exit(0)
-    print()   print()
+    print()
 
 def test_arm(ser):
     """Send neutral to all thrusters."""
@@ -86,7 +86,8 @@ def test_individual(ser):
         read_response(ser)
         time.sleep(SPIN_DURATION)
         all_neutral(ser)
-        print("STOPPED") time.sleep(PAUSE)
+        print("STOPPED")
+        time.sleep(PAUSE)
 
 def test_individual(ser):
     """Spin each thruster one at a time."""
