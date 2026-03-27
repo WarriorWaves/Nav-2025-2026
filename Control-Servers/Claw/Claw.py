@@ -100,28 +100,20 @@ class MainProgram:
             self.claw_position = max(self.claw_position - CLAW_SPEED, target_claw)
 
 
-        self.send_servo_command("claw", int(self.claw_position))
-
         # Roll control
+        target_roll = self.roll_position
         if self.controller.get_button(LEFT_BUMPER):
-            self.roll_position = max(ROLL_MIN, self.roll_position - ROLL_SPEED)
+            target_roll = max(ROLL_MIN, self.roll_position - ROLL_SPEED)
         elif self.controller.get_button(RIGHT_BUMPER):
-            self.roll_position = min(ROLL_MAX, self.roll_position + ROLL_SPEED)
+            target_roll = min(ROLL_MAX, self.roll_position + ROLL_SPEED)
 
-        self.send_servo_command("roll", int(self.roll_position))
+        self.roll_position = target_roll
 
+        # --- Serial Send Logic (Fixed Spam) ---
         claw_pos_rounded = round(self.claw_position)
         if claw_pos_rounded != self.last_claw_sent:
             self.send_servo_command("claw", claw_pos_rounded)
             self.last_claw_sent = claw_pos_rounded
-
-        target_roll = self.roll_position
-        if self.controller.get_button(LEFT_BUMPER):
-            target_roll = min(ROLL_MAX, self.roll_position + ROLL_SPEED)
-        elif self.controller.get_button(RIGHT_BUMPER):
-            target_roll = max(ROLL_MIN, self.roll_position - ROLL_SPEED)
-
-        self.roll_position = target_roll
 
         roll_pos_rounded = round(self.roll_position)
         if roll_pos_rounded != self.last_roll_sent:
@@ -146,8 +138,5 @@ class MainProgram:
         sys.exit(status)
 
 if __name__ == "__main__":
-
-    MainProgram().run()
-
     program = MainProgram()
     program.run()
