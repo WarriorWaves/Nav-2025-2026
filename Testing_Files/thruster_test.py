@@ -1,169 +1,211 @@
-"""Verifies all 6 thrusters respond correctly (hopefully lol)"""
-
-import time
 import sys
+import os
+import time
+import pygame
 import serial
 
-from config import THRUSTER_PORT, BAUD_RATE, THRUSTER_ORDER, THRUSTER_NEUTRAL
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'Topside'))
 
-SPIN_SPEED    = 1550   # PWM for forward spin
-SPIN_DURATION = 1.5    # Run duration per thruster (sec)
-MOVE_SPEED    = 1560   # PWM for directional tests
-MOVE_DURATION = 2.0    # Run duration per direction (sec)
-PAUSE         = 1.0    # Pause between tests (sec)
+from config import ROV_PORT, BAUD_RATE, THRUSTER_ORDER, THRUSTER_NEUTRAL
+from utils.math_helpers import compute_thruster_outputs
 
-NEUTRAL = [THRUSTER_NEUTRAL] * 6
-# Thruster indices matching THRUSTER_ORDER
-FR, FL, BR, BL, F, B = 0, 1, 2, 3, 4, 5
+POLL_MS       = 30
+TEST_PWM      = 1550
+TEST_DURATION = 3.0
+TEST_PAUSE    = 1.0
 
-def connect(port, baud):
-    print(f"\n[Serial] Connecting to thruster Arduino on {port} ...")
-    try:
-        ser = serial.Serial(port, baud, timeout=1)
-        time.sleep(2)   # Wait for Arduino boot
-        ser.reset_input_buffer()
-        print(f"[Serial] Connected.\n")
-        return ser
-    except serial.SerialException as e:
-        print(f"\n[ERROR] Could not open {port}: {e}")
-        print("  → Check THRUSTER_PORT in config.py")
-        print("  → Run:  ls /dev/cu.*")
-        sys.exit(1)
+AXIS_LEFT_X  = 0
+AXIS_LEFT_Y  = 1
+AXIS_RIGHT_X = 2
+AXIS_RIGHT_Y = 3
+BTN_TRIANGLE = 3
+BTN_SQUARE   = 2
+BTN_CROSS    = 0
+AXIS_DEADZONE = 0.08
+
+THRUSTER_NOTES = {
+    "FR": "front-right horizontal — should push water LEFT/BACK",
+    "FL": "front-left  horizontal — should push water RIGHT/BACK",
+    "BR": "back-right  horizontal — should push water LEFT/FRONT",
+    "BL": "back-left   horizontal — should push water RIGHT/FRONT",
+    "F":  "front vertical — should push water DOWN",
+    "B":  "back  vertical — should push water DOWN",
+}
 
 def send_pwm(ser, pwm_list):
-    """Send THR command to the thruster Arduino."""
-    cmd = "THR " + " ".join(str(int(v)) for v in pwm_list) + "\n"
-    ser.write(cmd.encode("utf-8"))
+    cmd = "THR " + " ".join(str(int(p)) for p in pwm_list) + "\n"
+    ser.write(cmd.encode())
 
 def all_neutral(ser):
-    send_pwm(ser, NEUTRAL)
+    send_pwm(ser, [THRUSTER_NEUTRAL] * 6)
 
-def read_response(ser):
-    time.sleep(0.05)
-    while ser.in_waiting:
-        line = ser.readline().decode("utf-8", errors="replace").strip()
-        if line:
-            print(f"  [Arduino] {line}")
+def single_thruster(ser, index, pwm):
+    values = [THRUSTER_NEUTRAL] * 6
+    values[index] = pwm
+    send_pwm(ser, values)
 
-def safety_check():
+def sequential_test(ser, joystick):
+    print("\n" + "─" * 60)
+    print(" SEQUENTIAL THRUSTER TEST")
+    print(" Each thruster spins for 3 s at low power (1550 µs).")
+    print(" Watch direction. Press any button to advance.")
+    print("─" * 60 + "\n")
+
+    for i, name in enumerate(THRUSTER_ORDER):
+        note = THRUSTER_NOTES.get(name, "")
+        print(f"  [{i+1}/6] Thruster {name} — {note}")
+        print(f"  Spinning in 3 seconds... ", end="", flush=True)
+        for countdown in range(3, 0, -1):
+            print(f"{countdown}... ", end="", flush=True)
+            time.sleep(1.0)
+        print("GO")
+        single_thruster(ser, i, TEST_PWM)
+        time.sleep(TEST_DURATION)
+        all_neutral(ser)
+        print(f"  STOPPED. Press any button to continue...")
+        _wait_for_any_button(joystick)
+        print(f"  ✓ {name} done.\n")
+
+    print("  Sequential test complete.\n")
+
+def _wait_for_any_button(joystick):
+    while True:
+        pygame.event.pump()
+        if not any(joystick.get_button(b) for b in range(joystick.get_numbuttons())):
+            break
+        pygame.time.delay(50)
+    while True:
+        pygame.event.pump()
+        if any(joystick.get_button(b) for b in range(joystick.get_numbuttons())):
+            break
+        pygame.time.delay(50)
+
+def main():
     print("=" * 60)
-    print("  WARRIOR WAVES — THRUSTER TEST SCRIPT")
+    print(" WARRIOR WAVES — Thruster Test (OUT OF WATER ONLY)")
     print("=" * 60)
-    print()
-    print("  Thruster order:  FR  FL  BR  BL  F  B")
-    print("  Neutral PWM:     1500 µs")
-    print(f"  Spin PWM:        {SPIN_SPEED} µs  (gentle forward)")
-    print()
-    print("  ⚠  SAFETY CHECKLIST before continuing:")
-    print("     [ ] ROV is on a stable surface or mounted securely")
-    print("     [ ] Thruster shrouds are attached")
-    print("     [ ] No loose wires near thruster props")
-    print("     [ ] You can reach the power switch quickly")
-    print()
-    ans = input("  Type  YES  to begin the test: ").strip().upper()
-    if ans != "YES":
-        print("\n  Aborted.")
-        sys.exit(0)
-    print()
-
-def test_arm(ser):
-    """Send neutral to all thrusters."""
-    print("── TEST 1: ARM (all neutral) ──────────────────────────")
-    all_neutral(ser)
-    read_response(ser)
-    print("  Sent neutral (1500) to all 6 thrusters.")
-    print("  ✓ No movement expected.")
-    time.sleep(PAUSE)
-
-def test_individual(ser):
-    """Spin each thruster one at a time."""
-    print("\n── TEST 2: INDIVIDUAL THRUSTERS ───────────────────────")
-    for idx, name in enumerate(THRUSTER_ORDER):
-        pwm = NEUTRAL.copy()
-        pwm[idx] = SPIN_SPEED
-        print(f"  [{idx+1}/6] {name} → {SPIN_SPEED} µs  ({SPIN_DURATION}s) ...", end=" ", flush=True)
-        send_pwm(ser, pwm)
-        read_response(ser)
-        time.sleep(SPIN_DURATION)
-        all_neutral(ser)
-        print("STOPPED")
-        time.sleep(PAUSE)
-
-def test_individual(ser):
-    """Spin each thruster one at a time."""
-    print("\n── TEST 2: INDIVIDUAL THRUSTERS ───────────────────────")
-    for idx, name in enumerate(THRUSTER_ORDER):
-        pwm = NEUTRAL.copy()
-        pwm[idx] = SPIN_SPEED
-        print(f"  [{idx+1}/6] {name} → {SPIN_SPEED} µs  ({SPIN_DURATION}s) ...", end=" ", flush=True)
-        send_pwm(ser, pwm)
-        read_response(ser)
-        time.sleep(SPIN_DURATION)
-        all_neutral(ser)
-        print("STOPPED")
-        time.sleep(PAUSE)
-    print("  ✓ All individual thrusters tested.")
-
-def test_directional(ser):
-    """Run combined thrust patterns to test mixing."""
-    print("\n── TEST 3: DIRECTIONAL PATTERNS ───────────────────────")
-
-    hi  = MOVE_SPEED               # Forward
-    lo  = THRUSTER_NEUTRAL * 2 - MOVE_SPEED  # Reverse
-    N   = THRUSTER_NEUTRAL
-
-    patterns = [
-        # [FR, FL, BR, BL, F, B]
-        ("SURGE FWD",  [hi,  hi,  hi,  hi,  N,   N  ]),
-        ("SURGE REV",  [lo,  lo,  lo,  lo,  N,   N  ]),
-        ("SWAY RIGHT",  [lo,  hi,  hi,  lo,  N,   N  ]),
-        ("SWAY LEFT",   [hi,  lo,  lo,  hi,  N,   N  ]),
-        ("HEAVE UP",   [N,   N,   N,   N,   hi,  hi ]),
-        ("HEAVE DOWN", [N,   N,   N,   N,   lo,  lo ]),
-        ("YAW RIGHT",  [lo,  hi,  lo,  hi,  N,   N  ]),
-        ("YAW LEFT",   [hi,  lo,  hi,  lo,  N,   N  ]),
-    ]
-
-    for name, pwm in patterns:
-        print(f"  {name:<12} {pwm}  ({MOVE_DURATION}s) ...", end=" ", flush=True)
-        send_pwm(ser, pwm)
-        read_response(ser)
-        time.sleep(MOVE_DURATION)
-        all_neutral(ser)
-        print("STOPPED")
-        time.sleep(PAUSE)
-
-    print("  ✓ Directional patterns complete.")
-
-def test_full_stop(ser):
-    """Final safety neutral."""
-    print("\n── TEST 4: FULL STOP ──────────────────────────────────")
-    all_neutral(ser)
-    read_response(ser)
-    print("  All thrusters → 1500 µs (neutral).")
-    print("  ✓ Test sequence complete.\n")
-
-if __name__ == "__main__":
-    safety_check()
-
-    ser = connect(THRUSTER_PORT, BAUD_RATE)
+    print(f"\nOpening serial port: {ROV_PORT} @ {BAUD_RATE} baud...")
 
     try:
-        test_arm(ser)
-        test_individual(ser)
-        test_directional(ser)
-        test_full_stop(ser)
-
-        print("=" * 60)
-        print("  ALL TESTS PASSED — safe to proceed to pool testing.")
-        print("=" * 60)
-
-    except KeyboardInterrupt:
-        print("\n\n  [!] Test interrupted by user.")
-        print("  Sending neutral to all thrusters...")
+        ser = serial.Serial(ROV_PORT, BAUD_RATE, timeout=1)
+        time.sleep(2)
+        ser.reset_input_buffer()
         all_neutral(ser)
-        print("  Safe.")
+        print("  Serial OK. Neutral sent — waiting for ESC arming beeps (2–3 s)...")
+        time.sleep(3)
+        print("  ESCs should have beeped. If not, check power and re-run.")
+    except serial.SerialException as e:
+        print(f"\n  ERROR: Could not open {ROV_PORT}: {e}")
+        print("  Run 'ls /dev/cu.*' to find the correct port and update config.py.")
+        sys.exit(1)
 
-    finally:
+    print("\nInitialising pygame and DualSense controller...")
+    pygame.init()
+    pygame.joystick.init()
+    if pygame.joystick.get_count() == 0:
+        print("  ERROR: No Bluetooth controller detected.")
+        all_neutral(ser)
         ser.close()
-        print("  Serial port closed.")
+        sys.exit(1)
+    joystick = pygame.joystick.Joystick(0)
+    joystick.init()
+    print(f"  Controller OK: {joystick.get_name()}")
+
+    print("\n" + "─" * 60)
+    print(" CONTROLS:")
+    print("  Left stick X/Y  -> sway / surge")
+    print("  Right stick Y   ->heave (up/down)")
+    print("  Right stick X   ->yaw   (rotation)")
+    print("  Triangle        -> run automatic sequential test")
+    print("  Square          -> EMERGENCY STOP (all -> 1500 immediately)")
+    print("  Cross (X)       -> quit safely")
+    print("─" * 60)
+    print("\nLive manual control active. All thrusters at neutral.\n")
+
+    estopped = False
+    running  = True
+
+    while running:
+        pygame.event.pump()
+
+        try:
+            if joystick.get_button(BTN_SQUARE):
+                if not estopped:
+                    all_neutral(ser)
+                    estopped = True
+                    print("\n  *** ESTOP *** All thrusters -> 1500. Press any other button to resume.\n")
+                pygame.time.delay(POLL_MS)
+                continue
+            elif estopped:
+                if any(joystick.get_button(b)
+                       for b in range(joystick.get_numbuttons())
+                       if b != BTN_SQUARE):
+                    estopped = False
+                    print("  ESTOP cleared. Manual control resumed.\n")
+                pygame.time.delay(POLL_MS)
+                continue
+        except Exception:
+            pass
+
+        try:
+            if joystick.get_button(BTN_CROSS):
+                print("\n[QUIT] Cross pressed.")
+                running = False
+                break
+        except Exception:
+            pass
+
+        try:
+            if joystick.get_button(BTN_TRIANGLE):
+                all_neutral(ser)
+                time.sleep(0.5)
+                sequential_test(ser, joystick)
+                print("Resuming manual control.\n")
+                pygame.time.delay(POLL_MS)
+                continue
+        except Exception:
+            pass
+
+        def axis(idx):
+            try:
+                v = joystick.get_axis(idx)
+                return v if abs(v) >= AXIS_DEADZONE else 0.0
+            except Exception:
+                return 0.0
+
+        surge = axis(AXIS_LEFT_Y)  * -1
+        sway  = axis(AXIS_LEFT_X)
+        heave = axis(AXIS_RIGHT_Y) * -1
+        yaw   = axis(AXIS_RIGHT_X)
+
+        pwm_dict = compute_thruster_outputs(surge, sway, heave, yaw)
+        pwm_list = [pwm_dict[n] for n in THRUSTER_ORDER]
+        send_pwm(ser, pwm_list)
+
+        labels = " ".join(f"{n}:{v}" for n, v in zip(THRUSTER_ORDER, pwm_list))
+        print(f"\r  {labels} ", end="", flush=True)
+        pygame.time.delay(POLL_MS)
+
+    print("\n\nSending neutral to all thrusters and closing...")
+    all_neutral(ser)
+    time.sleep(0.3)
+    ser.close()
+    pygame.quit()
+    print("Done. Test complete!")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n[Ctrl+C] Interrupted. Sending neutral to all thrusters...")
+        try:
+            ser = serial.Serial(ROV_PORT, BAUD_RATE, timeout=1)
+            time.sleep(1)
+            all_neutral(ser)
+            ser.close()
+            print("All thrusters → neutral.")
+        except Exception:
+            pass
+        pygame.quit()
+        sys.exit(0)
