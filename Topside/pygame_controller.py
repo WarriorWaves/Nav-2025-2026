@@ -2,6 +2,7 @@ import pygame
 from dataclasses import dataclass, field
 from typing import List
 from PyQt5.QtCore import QThread, pyqtSignal
+
 from serial_comm import SerialPort
 from math_helpers import compute_thruster_outputs
 from config import (
@@ -17,6 +18,7 @@ from config import (
     CONTROLLER_POLL_MS,
 )
 
+
 @dataclass
 class ROVState:
     thrust_pwm:           List[int] = field(default_factory=lambda: [THRUSTER_NEUTRAL] * 6)
@@ -26,8 +28,9 @@ class ROVState:
     claw_open:            bool = True
     estopped:             bool = False
     controller_connected: bool = False
-    rov_port_connected:   bool = False 
+    rov_port_connected:   bool = False
     capture_requested:    bool = False
+
 
 class ROVWorker(QThread):
     state_updated = pyqtSignal(object)
@@ -35,12 +38,15 @@ class ROVWorker(QThread):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._running = False
-        self.rov_port = SerialPort(ROV_PORT, BAUD_RATE, name="ROV Arduino") 
+
+        self.rov_port = SerialPort(ROV_PORT, BAUD_RATE, name="ROV Arduino")
+
         self._claw_position  = float(CLAW_OPEN)
         self._roll_position  = 90.0
         self._tilt_position  = 90.0
         self._estopped       = False
         self._claw_open      = True
+
         self._last_claw_sent = -1
         self._last_roll_sent = -1
         self._last_tilt_sent = -1
@@ -50,11 +56,14 @@ class ROVWorker(QThread):
     def run(self):
         pygame.init()
         pygame.joystick.init()
+
         joystick = self._connect_joystick()
         self._running = True
+
         while self._running:
             pygame.event.pump()
-            if joystick is None: 
+
+            if joystick is None:
                 joystick = self._connect_joystick()
             else:
                 try:
@@ -62,38 +71,45 @@ class ROVWorker(QThread):
                 except Exception:
                     print("[Worker] Controller disconnected.")
                     joystick = None
+
             state = self._poll(joystick)
             self.state_updated.emit(state)
+
             self.msleep(CONTROLLER_POLL_MS)
+
         self._send_neutral()
         self.rov_port.close()
         pygame.quit()
 
     def stop(self):
-        self._running = False 
-        self.wait()
+        self._running = False
+        if self.isRunning():
+            self.wait()
 
     def _poll(self, joystick) -> ROVState:
         capture_requested = False
+
         if joystick is not None:
-            if self._btn(joystick, BTN_SQUARE): # Emergency stop
+            if self._btn(joystick, BTN_SQUARE):
                 if not self._estopped:
                     self._estopped = True
                     self._send_neutral()
-                    print("[ESTOP] All thrusters → 1500")
+                    print("[ESTOP] All thrusters -> 1500")
             elif self._estopped:
-                if any( # Any non-Square button clears estop
+                if any(
                     joystick.get_button(b)
                     for b in range(joystick.get_numbuttons())
                     if b != BTN_SQUARE
                 ):
                     self._estopped = False
+
             if not self._estopped:
                 self._handle_thrusters(joystick)
                 self._handle_claw(joystick)
                 self._handle_roll(joystick)
                 self._handle_tilt(joystick)
                 capture_requested = self._handle_cross(joystick)
+
         return ROVState(
             thrust_pwm           = list(self._thrust_pwm),
             claw_angle           = int(round(self._claw_position)),
@@ -111,6 +127,7 @@ class ROVWorker(QThread):
         sway  = self._axis(joystick, AXIS_LEFT_X)
         heave = self._axis(joystick, AXIS_RIGHT_Y) * -1
         yaw   = self._axis(joystick, AXIS_RIGHT_X)
+
         pwm_dict = compute_thruster_outputs(surge, sway, heave, yaw)
         self._thrust_pwm = [pwm_dict[n] for n in THRUSTER_ORDER]
         cmd = "THR " + " ".join(str(v) for v in self._thrust_pwm)
@@ -119,10 +136,12 @@ class ROVWorker(QThread):
     def _handle_claw(self, joystick):
         l2 = (self._axis(joystick, AXIS_L2) + 1.0) / 2.0
         r2 = (self._axis(joystick, AXIS_R2) + 1.0) / 2.0
+
         if l2 > TRIGGER_THRESHOLD:
             self._claw_position = max(CLAW_CLOSED, self._claw_position - CLAW_SPEED * l2)
         elif r2 > TRIGGER_THRESHOLD:
             self._claw_position = min(CLAW_OPEN,   self._claw_position + CLAW_SPEED * r2)
+
         self._claw_open = self._claw_position > (CLAW_OPEN / 2)
         claw_int = int(round(self._claw_position))
         if claw_int != self._last_claw_sent:
@@ -134,6 +153,7 @@ class ROVWorker(QThread):
             self._roll_position = max(ROLL_MIN, self._roll_position - ROLL_SPEED)
         elif self._btn(joystick, BTN_R1):
             self._roll_position = min(ROLL_MAX, self._roll_position + ROLL_SPEED)
+
         roll_int = int(round(self._roll_position))
         if roll_int != self._last_roll_sent:
             self.rov_port.send(f"roll:{roll_int}")
@@ -183,13 +203,14 @@ class ROVWorker(QThread):
         except Exception:
             return False
 
+
 class ROVController:
     def __init__(self):
         self._worker = ROVWorker()
 
     @property
     def state_updated(self):
-        return self._worker.state_updated 
+        return self._worker.state_updated
 
     def start(self):
         self._worker.start()

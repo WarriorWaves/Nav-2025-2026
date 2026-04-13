@@ -1,31 +1,38 @@
 import sys
+import os
 import cv2
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QImage, QPixmap
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from config import VIDEO_UPDATE_MS
+
 
 class CameraWidget(QWidget):
-    """Embeddable camera widget using OpenCV. Create and add to a layout.
+    """
+    cam widget using OpenCV.
+    Feed starts automatically on construction
 
-    Use `start()` to begin capture (or the widget will start automatically when created).
+    This widget is for standalone or diagnostic use.
     """
 
-    def __init__(self, device_index=0, parent=None):
+    def __init__(self, device_index: int = 0, parent=None):
         super().__init__(parent)
+
         self.video_label = QLabel(self)
         self.video_label.setAlignment(Qt.AlignCenter)
+
         layout = QVBoxLayout()
         layout.addWidget(self.video_label)
         self.setLayout(layout)
 
         self.cap = cv2.VideoCapture(device_index, cv2.CAP_AVFOUNDATION)
         if not self.cap.isOpened():
-            print("Warning: Camera not found at index", device_index)
+            print(f"[CameraWidget] Warning: no camera at index {device_index}")
             self.cap = None
             return
 
-        # Optional camera settings
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         try:
             self.cap.set(cv2.CAP_PROP_EXPOSURE, -7)
@@ -33,9 +40,10 @@ class CameraWidget(QWidget):
         except Exception:
             pass
 
+
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(30)
+        self.timer.start(VIDEO_UPDATE_MS)
 
     def update_frame(self):
         if not self.cap:
@@ -45,8 +53,7 @@ class CameraWidget(QWidget):
             return
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = frame.shape
-        bytes_per_line = ch * w
-        qimg = QImage(frame.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        qimg = QImage(frame.data, w, h, ch * w, QImage.Format_RGB888)
         self.video_label.setPixmap(QPixmap.fromImage(qimg))
 
     def closeEvent(self, event):
@@ -55,10 +62,11 @@ class CameraWidget(QWidget):
         event.accept()
 
 
-def start_video_feed():
+
+def start_video_feed(device_index: int = 0):
     app = QApplication(sys.argv)
-    window = CameraWidget()
-    window.setWindowTitle("Camera Feed")
+    window = CameraWidget(device_index=device_index)
+    window.setWindowTitle(f"Camera Feed — device {device_index}")
     window.resize(800, 600)
     window.show()
     sys.exit(app.exec_())
