@@ -1,6 +1,6 @@
 import numpy as np
 
-ROV_PORT  = "/dev/cu.usbserial-14240" #UPDATE THIS!! To the actual port
+ROV_PORT  = "/dev/cu.usbserial-14340" #UPDATE THIS!! To the actual port
 BAUD_RATE = 9600
 
 CAMERA_INDEX_FRONT = 0
