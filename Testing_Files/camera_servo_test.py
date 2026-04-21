@@ -4,8 +4,12 @@ import time
 import pygame
 import serial
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'Topside'))
-from config import ROV_PORT, BAUD_RATE
+
+_PROJECT_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
+from Topside.config import ROV_PORT, BAUD_RATE
 
 TILT_MIN  = 0
 TILT_MAX  = 180
