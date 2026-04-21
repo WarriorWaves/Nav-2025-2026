@@ -1,6 +1,6 @@
 import numpy as np
 
-ROV_PORT = "/dev/cu.usbserial-1410" #UPDATE THIS to your actual port, use   ls /dev/cu.* 
+ROV_PORT = "/dev/cu.usbserial-14240" #UPDATE THIS to your actual port, use   ls /dev/cu.* 
 BAUD_RATE = 9600
 
 THRUSTER_ORDER = ["FR", "FL", "BR", "BL", "F", "B"]
