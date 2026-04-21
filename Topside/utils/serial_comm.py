@@ -4,13 +4,12 @@ import time
 
 
 class SerialPort:
-    def __init__(self, port: str, baudrate: int = 9600, timeout: float = 1.0, name: str = ""):
-        self._lock = threading.Lock()
-        self._ser  = None
-        self.port  = port
-        self.name  = name or port
+    def __init__(self, port, baudrate=9600, timeout=1.0, name=""):
+        self._lock     = threading.Lock()
+        self._ser      = None
+        self.port      = port
+        self.name      = name or port
         self.connected = False
-
         try:
             self._ser = serial.Serial(port, baudrate, timeout=timeout)
             time.sleep(2)
@@ -19,8 +18,9 @@ class SerialPort:
             print(f"[Serial] Connected: {self.name} on {port}")
         except serial.SerialException as e:
             print(f"[Serial] WARNING — could not open {self.name} ({port}): {e}")
+            print("[Serial] Run 'ls /dev/cu.*' and update ROV_PORT in config.py")
 
-    def send(self, command: str):
+    def send(self, command):
         with self._lock:
             if not self.connected or self._ser is None:
                 return

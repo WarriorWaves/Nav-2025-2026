@@ -11,38 +11,54 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QImage, QPixmap, QFont
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+_TOPSIDE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+if _TOPSIDE not in sys.path:
+    sys.path.insert(0, _TOPSIDE)
 
 from pygame_controller import ROVController
-from config import VIDEO_UPDATE_MS, THRUSTER_ORDER, BTN_CROSS
+from config import (
+    VIDEO_UPDATE_MS, THRUSTER_ORDER,
+    CAMERA_INDEX_FRONT, CAMERA_INDEX_REAR,
+    CAMERA_WIDTH, CAMERA_HEIGHT, CAMERA_FPS,
+)
 
 _OK    = "#4CAF50"
 _ERROR = "#f44336"
+_DIM   = "#555555"
+
 
 class VideoFeedWidget(QLabel):
-
-    def __init__(self, title: str = "Video Feed", camera_index: int = 0, parent=None):
+    def __init__(self, title, camera_index, parent=None):
         super().__init__(parent)
         self._title = title
+        self.capture = None
         self.setMinimumSize(480, 270)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setAlignment(Qt.AlignCenter)
-        self.setStyleSheet("""
-            border: 2px solid #3d3d3d;
-            border-radius: 8px;
-            background-color: #1a1a1a;
-            color: #888;
-        """)
+        self.setStyleSheet(
+            "border: 2px solid #3d3d3d;"
+            "border-radius: 8px;"
+            "background-color: #1a1a1a;"
+            "color: #666;"
+        )
         self.setText(f"{title}\nNo Signal")
+
+        if camera_index < 0:
+            self.setText(f"{title}\nDisabled")
+            return
 
         self.capture = cv2.VideoCapture(camera_index, cv2.CAP_AVFOUNDATION)
         if self.capture.isOpened():
             self.capture.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH,  CAMERA_WIDTH)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
+            self.capture.set(cv2.CAP_PROP_FPS,          CAMERA_FPS)
             self._timer = QTimer(self)
             self._timer.timeout.connect(self._update_feed)
             self._timer.start(VIDEO_UPDATE_MS)
         else:
-            print(f"[Camera] Could not open camera index {camera_index}")
+            print(f"[Camera] Could not open index {camera_index}")
+            self.capture = None
 
     def _update_feed(self):
         if not self.capture or not self.capture.isOpened():
@@ -65,9 +81,9 @@ class VideoFeedWidget(QLabel):
         xo = (lw - nw) // 2
         yo = (lh - nh) // 2
         canvas[yo:yo + nh, xo:xo + nw] = frame_r
-        rgb   = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
+        rgb = cv2.cvtColor(canvas, cv2.COLOR_BGR2RGB)
         h, w, c = rgb.shape
-        qimg  = QImage(rgb.data, w, h, c * w, QImage.Format_RGB888)
+        qimg = QImage(rgb.data, w, h, c * w, QImage.Format_RGB888)
         self.setPixmap(QPixmap.fromImage(qimg))
 
     def capture_frame(self):
@@ -85,8 +101,9 @@ class VideoFeedWidget(QLabel):
         if self.capture and self.capture.isOpened():
             self.capture.release()
 
+
 class ThrusterPowerWidget(QWidget):
-    def __init__(self, name: str, parent=None):
+    def __init__(self, name, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setSpacing(3)
@@ -114,22 +131,16 @@ class ThrusterPowerWidget(QWidget):
         layout.addWidget(self._bar, alignment=Qt.AlignHCenter)
         layout.addWidget(self._label)
 
-    def update_power(self, power: float):
+    def update_power(self, power):
         p = int(max(-100, min(100, power)))
         self._bar.setValue(p)
         self._label.setText(f"{p:+d}%")
-        colour = "#4CAF50" if p > 0 else ("#f44336" if p < 0 else "#555")
-        self._bar.setStyleSheet(f"""
-            QProgressBar {{
-                border: 1px solid #444;
-                border-radius: 3px;
-                background-color: #222;
-            }}
-            QProgressBar::chunk {{
-                background-color: {colour};
-                border-radius: 2px;
-            }}
-        """)
+        colour = _OK if p > 0 else (_ERROR if p < 0 else _DIM)
+        self._bar.setStyleSheet(
+            f"QProgressBar {{ border: 1px solid #444; border-radius: 3px; background-color: #222; }}"
+            f"QProgressBar::chunk {{ background-color: {colour}; border-radius: 2px; }}"
+        )
+
 
 class ThrusterPowerPanel(QGroupBox):
     def __init__(self, parent=None):
@@ -141,23 +152,17 @@ class ThrusterPowerPanel(QGroupBox):
             w = ThrusterPowerWidget(name)
             self._widgets[name] = w
             layout.addWidget(w)
-        self.setStyleSheet("""
-            QGroupBox {
-                background-color: #1e1e1e;
-                border: 2px solid #3d3d3d;
-                border-radius: 8px;
-                margin-top: 1em;
-                padding: 8px;
-                color: white;
-                font-weight: bold;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-        """)
+        self.setStyleSheet(
+            "QGroupBox { background-color: #1e1e1e; border: 2px solid #3d3d3d;"
+            "border-radius: 8px; margin-top: 1em; padding: 8px;"
+            "color: white; font-weight: bold; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
+        )
 
     def update_thrusters(self, pwm_list):
         for i, name in enumerate(THRUSTER_ORDER):
-            power = (pwm_list[i] - 1500) / 1.5
-            self._widgets[name].update_power(power)
+            self._widgets[name].update_power((pwm_list[i] - 1500) / 1.5)
+
 
 class StatusPanel(QGroupBox):
     _ROWS = ["Controller", "ROV Port", "E-Stop"]
@@ -168,85 +173,78 @@ class StatusPanel(QGroupBox):
         layout.setSpacing(6)
         self._labels = {}
         for name in self._ROWS:
-            row     = QHBoxLayout()
+            row = QHBoxLayout()
             lbl_name = QLabel(name)
             lbl_name.setFont(QFont("Arial", 10))
             lbl_name.setStyleSheet("color: #aaa; border: none;")
             lbl_name.setFixedWidth(110)
             lbl_val = QLabel("--")
             lbl_val.setFont(QFont("Arial", 10, QFont.Bold))
-            lbl_val.setStyleSheet("color: #555; border: none;")
+            lbl_val.setStyleSheet(f"color: {_DIM}; border: none;")
             row.addWidget(lbl_name)
             row.addWidget(lbl_val)
             row.addStretch()
             layout.addLayout(row)
             self._labels[name] = lbl_val
-        self.setStyleSheet("""
-            QGroupBox {
-                background-color: #1e1e1e;
-                border: 2px solid #3d3d3d;
-                border-radius: 8px;
-                margin-top: 1em;
-                padding: 8px;
-                color: white;
-                font-weight: bold;
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }
-        """)
+        self.setStyleSheet(
+            "QGroupBox { background-color: #1e1e1e; border: 2px solid #3d3d3d;"
+            "border-radius: 8px; margin-top: 1em; padding: 8px;"
+            "color: white; font-weight: bold; }"
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; }"
+        )
 
-    def set(self, name: str, text: str, colour: str):
+    def set(self, name, text, colour):
         if name in self._labels:
             self._labels[name].setText(text)
             self._labels[name].setStyleSheet(
                 f"color: {colour}; border: none; font-weight: bold;"
             )
 
+
 class EStopBanner(QLabel):
     def __init__(self, parent=None):
-        super().__init__("⚠ EMERGENCY STOP ⚠", parent)
+        super().__init__("⚠  EMERGENCY STOP  ⚠", parent)
         self.setAlignment(Qt.AlignCenter)
         self.setFont(QFont("Arial", 18, QFont.Bold))
-        self.setStyleSheet("""
-            background-color: #c62828;
-            color: white;
-            padding: 10px;
-            border-radius: 6px;
-            letter-spacing: 3px;
-        """)
+        self.setStyleSheet(
+            "background-color: #c62828; color: white; padding: 10px;"
+            "border-radius: 6px; letter-spacing: 3px;"
+        )
         self.setFixedHeight(55)
         self.hide()
+
 
 class ClawStatusWidget(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet("""
-            QFrame { background-color: #1e1e1e; border: 2px solid #3d3d3d; border-radius: 8px; }
-        """)
+        self.setStyleSheet(
+            "QFrame { background-color: #1e1e1e; border: 2px solid #3d3d3d; border-radius: 8px; }"
+        )
         layout = QHBoxLayout(self)
         lbl = QLabel("CLAW:")
         lbl.setFont(QFont("Arial", 11, QFont.Bold))
         lbl.setStyleSheet("color: #aaa; border: none;")
         self._ind = QLabel("OPEN")
         self._ind.setFont(QFont("Arial", 11, QFont.Bold))
-        self._ind.setStyleSheet("color: #4CAF50; border: none;")
+        self._ind.setStyleSheet(f"color: {_OK}; border: none;")
         layout.addWidget(lbl)
         layout.addWidget(self._ind)
         layout.addStretch()
 
-    def update_status(self, is_open: bool):
+    def update_status(self, is_open):
         self._ind.setText("OPEN" if is_open else "CLOSED")
-        self._ind.setStyleSheet(
-            f"color: {'#4CAF50' if is_open else '#f44336'}; border: none; font-weight: bold;"
-        )
+        colour = _OK if is_open else _ERROR
+        self._ind.setStyleSheet(f"color: {colour}; border: none; font-weight: bold;")
+
 
 class CameraTiltReadout(QFrame):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet("""
-            QFrame { background-color: #1e1e1e; border: 2px solid #3d3d3d; border-radius: 8px; }
-        """)
+        self.setStyleSheet(
+            "QFrame { background-color: #1e1e1e; border: 2px solid #3d3d3d; border-radius: 8px; }"
+        )
         layout = QHBoxLayout(self)
         lbl = QLabel("CAM TILT:")
         lbl.setFont(QFont("Arial", 11, QFont.Bold))
@@ -258,8 +256,9 @@ class CameraTiltReadout(QFrame):
         layout.addWidget(self._val)
         layout.addStretch()
 
-    def update_tilt(self, angle: int):
+    def update_tilt(self, angle):
         self._val.setText(f"{angle}°")
+
 
 class ROVControlPanel(QMainWindow):
     def __init__(self):
@@ -294,10 +293,10 @@ class ROVControlPanel(QMainWindow):
 
         centre = QVBoxLayout()
         centre.setSpacing(8)
-        self._feed1 = VideoFeedWidget("Camera 1 (Front)", camera_index=0)
-        self._feed2 = VideoFeedWidget("Camera 2 (Rear)",  camera_index=1)
-        centre.addWidget(self._feed1)
-        centre.addWidget(self._feed2)
+        self._feed_front = VideoFeedWidget("Camera 1 — Front", CAMERA_INDEX_FRONT)
+        self._feed_rear  = VideoFeedWidget("Camera 2 — Rear",  CAMERA_INDEX_REAR)
+        centre.addWidget(self._feed_front)
+        centre.addWidget(self._feed_rear)
         main_row.addLayout(centre, stretch=2)
 
         right = QVBoxLayout()
@@ -319,32 +318,33 @@ class ROVControlPanel(QMainWindow):
 
         self._status_panel.set(
             "Controller",
-            "CONNECTED" if state.controller_connected else "DISCONNECTED",
-            _OK if state.controller_connected else _ERROR,
+            "CONNECTED"    if state.controller_connected else "DISCONNECTED",
+            _OK            if state.controller_connected else _ERROR,
         )
         self._status_panel.set(
             "ROV Port",
-            "OK" if state.rov_port_connected else "NO PORT",
-            _OK if state.rov_port_connected else _ERROR,
+            "OK"           if state.rov_port_connected   else "NO PORT",
+            _OK            if state.rov_port_connected   else _ERROR,
         )
         self._status_panel.set(
             "E-Stop",
-            "ACTIVE" if state.estopped else "READY",
-            _ERROR if state.estopped else _OK,
+            "ACTIVE"       if state.estopped             else "READY",
+            _ERROR         if state.estopped             else _OK,
         )
 
         if state.capture_requested:
-            self._feed1.capture_frame()
+            self._feed_front.capture_frame()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_C:
-            self._feed1.capture_frame()
+            self._feed_front.capture_frame()
 
     def closeEvent(self, event):
         self._controller.close()
-        self._feed1.release()
-        self._feed2.release()
+        self._feed_front.release()
+        self._feed_rear.release()
         event.accept()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

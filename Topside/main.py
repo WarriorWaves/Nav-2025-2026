@@ -1,10 +1,15 @@
 import sys
 import os
 
+_TOPSIDE = os.path.dirname(os.path.abspath(__file__))
+if _TOPSIDE not in sys.path:
+    sys.path.insert(0, _TOPSIDE)
+
+_GUI = os.path.join(_TOPSIDE, 'gui_components')
+if _GUI not in sys.path:
+    sys.path.insert(0, _GUI)
+
 from PyQt5.QtWidgets import QApplication
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'gui_components'))
-
 from gui_main import ROVControlPanel
 
 if __name__ == "__main__":
