@@ -1,9 +1,15 @@
 import numpy as np
 
-ROV_PORT = "/dev/cu.usbserial-14240" #UPDATE THIS to your actual port, use   ls /dev/cu.* 
+ROV_PORT  = "/dev/cu.usbserial-14240" #UPDATE THIS!! To the actual port
 BAUD_RATE = 9600
 
-THRUSTER_ORDER = ["FR", "FL", "BR", "BL", "F", "B"]
+CAMERA_INDEX_FRONT = 0
+CAMERA_INDEX_REAR  = 1
+CAMERA_WIDTH       = 640
+CAMERA_HEIGHT      = 480
+CAMERA_FPS         = 15
+
+THRUSTER_ORDER   = ["FR", "FL", "BR", "BL", "F", "B"]
 THRUSTER_NEUTRAL = 1500
 THRUSTER_MIN     = 1350
 THRUSTER_MAX     = 1650
@@ -35,10 +41,10 @@ AXIS_RIGHT_Y = 3
 AXIS_L2      = 4
 AXIS_R2      = 5
 
-BTN_CROSS    = 0
-BTN_SQUARE   = 2
-BTN_L1       = 9
-BTN_R1       = 10
+BTN_CROSS   = 0
+BTN_SQUARE  = 2
+BTN_L1      = 9
+BTN_R1      = 10
 
 TRIGGER_THRESHOLD = 0.15
 AXIS_DEADZONE     = 0.08
