@@ -4,13 +4,8 @@ from dataclasses import dataclass, field
 from typing import List
 from PyQt5.QtCore import QThread, pyqtSignal
 
-import sys, os
-_TOPSIDE = os.path.dirname(os.path.abspath(__file__))
-if _TOPSIDE not in sys.path:
-    sys.path.insert(0, _TOPSIDE)
-
-from utils.serial_comm  import SerialPort
-from utils.math_helpers import compute_thruster_outputs
+from utils.serial_comm   import SerialPort
+from utils.math_helpers  import compute_thruster_outputs
 from config import (
     ROV_PORT, BAUD_RATE,
     THRUSTER_NEUTRAL, THRUSTER_ORDER,
@@ -43,8 +38,10 @@ class ROVWorker(QThread):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._running        = False
-        self.rov_port        = SerialPort(ROV_PORT, BAUD_RATE, name="ROV Arduino")
+        self._running = False
+
+        self.rov_port = SerialPort(ROV_PORT, BAUD_RATE, name="ROV Arduino")
+
         self._claw_position  = float(CLAW_OPEN)
         self._roll_position  = 90.0
         self._tilt_position  = 90.0
@@ -57,13 +54,14 @@ class ROVWorker(QThread):
         self._thrust_pwm     = [THRUSTER_NEUTRAL] * 6
 
     def run(self):
-        pygame.init()
         pygame.joystick.init()
+
         joystick      = self._connect_joystick()
         self._running = True
 
         while self._running:
             pygame.event.pump()
+
             if joystick is None:
                 joystick = self._connect_joystick()
             else:
@@ -75,18 +73,19 @@ class ROVWorker(QThread):
 
             state = self._poll(joystick)
             self.state_updated.emit(state)
+
             self.msleep(CONTROLLER_POLL_MS)
 
         self._send_neutral()
         self.rov_port.close()
-        pygame.quit()
+        pygame.joystick.quit()
 
     def stop(self):
         self._running = False
         if self.isRunning():
             self.wait()
 
-    def _poll(self, joystick):
+    def _poll(self, joystick) -> ROVState:
         capture_requested = False
 
         if joystick is not None:
@@ -128,6 +127,7 @@ class ROVWorker(QThread):
         sway  = self._axis(joystick, AXIS_LEFT_X)
         heave = self._axis(joystick, AXIS_RIGHT_Y) * -1
         yaw   = self._axis(joystick, AXIS_RIGHT_X)
+
         pwm_dict         = compute_thruster_outputs(surge, sway, heave, yaw)
         self._thrust_pwm = [pwm_dict[n] for n in THRUSTER_ORDER]
         self.rov_port.send("THR " + " ".join(str(v) for v in self._thrust_pwm))
@@ -135,10 +135,12 @@ class ROVWorker(QThread):
     def _handle_claw(self, joystick):
         l2 = (self._axis(joystick, AXIS_L2) + 1.0) / 2.0
         r2 = (self._axis(joystick, AXIS_R2) + 1.0) / 2.0
+
         if l2 > TRIGGER_THRESHOLD:
             self._claw_position = max(CLAW_CLOSED, self._claw_position - CLAW_SPEED * l2)
         elif r2 > TRIGGER_THRESHOLD:
             self._claw_position = min(CLAW_OPEN,   self._claw_position + CLAW_SPEED * r2)
+
         self._claw_open = self._claw_position > (CLAW_OPEN / 2)
         claw_int = int(round(self._claw_position))
         if claw_int != self._last_claw_sent:
@@ -150,6 +152,7 @@ class ROVWorker(QThread):
             self._roll_position = max(ROLL_MIN, self._roll_position - ROLL_SPEED)
         elif self._btn(joystick, BTN_R1):
             self._roll_position = min(ROLL_MAX, self._roll_position + ROLL_SPEED)
+
         roll_int = int(round(self._roll_position))
         if roll_int != self._last_roll_sent:
             self.rov_port.send(f"roll:{roll_int}")
@@ -166,7 +169,7 @@ class ROVWorker(QThread):
             self.rov_port.send(f"tilt:{tilt_int}")
             self._last_tilt_sent = tilt_int
 
-    def _handle_cross(self, joystick):
+    def _handle_cross(self, joystick) -> bool:
         cross_now            = self._btn(joystick, BTN_CROSS)
         triggered            = cross_now and not self._cross_was_held
         self._cross_was_held = cross_now
@@ -181,16 +184,18 @@ class ROVWorker(QThread):
         return None
 
     def _send_neutral(self):
-        self.rov_port.send("THR " + " ".join(str(THRUSTER_NEUTRAL) for _ in range(6)))
+        self.rov_port.send(
+            "THR " + " ".join(str(THRUSTER_NEUTRAL) for _ in range(6))
+        )
         self._thrust_pwm = [THRUSTER_NEUTRAL] * 6
 
     @staticmethod
-    def _axis(j, idx):
+    def _axis(j, idx: int) -> float:
         try:    return j.get_axis(idx)
         except: return 0.0
 
     @staticmethod
-    def _btn(j, idx):
+    def _btn(j, idx: int) -> bool:
         try:    return bool(j.get_button(idx))
         except: return False
 
