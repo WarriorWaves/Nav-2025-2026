@@ -127,7 +127,6 @@ class ROVWorker(QThread):
         sway  = self._axis(joystick, AXIS_LEFT_X)
         heave = self._axis(joystick, AXIS_RIGHT_Y) * -1
         yaw   = self._axis(joystick, AXIS_RIGHT_X)
-
         pwm_dict         = compute_thruster_outputs(surge, sway, heave, yaw)
         self._thrust_pwm = [pwm_dict[n] for n in THRUSTER_ORDER]
         self.rov_port.send("THR " + " ".join(str(v) for v in self._thrust_pwm))
@@ -135,12 +134,10 @@ class ROVWorker(QThread):
     def _handle_claw(self, joystick):
         l2 = (self._axis(joystick, AXIS_L2) + 1.0) / 2.0
         r2 = (self._axis(joystick, AXIS_R2) + 1.0) / 2.0
-
         if l2 > TRIGGER_THRESHOLD:
             self._claw_position = max(CLAW_CLOSED, self._claw_position - CLAW_SPEED * l2)
         elif r2 > TRIGGER_THRESHOLD:
             self._claw_position = min(CLAW_OPEN,   self._claw_position + CLAW_SPEED * r2)
-
         self._claw_open = self._claw_position > (CLAW_OPEN / 2)
         claw_int = int(round(self._claw_position))
         if claw_int != self._last_claw_sent:
@@ -152,7 +149,6 @@ class ROVWorker(QThread):
             self._roll_position = max(ROLL_MIN, self._roll_position - ROLL_SPEED)
         elif self._btn(joystick, BTN_R1):
             self._roll_position = min(ROLL_MAX, self._roll_position + ROLL_SPEED)
-
         roll_int = int(round(self._roll_position))
         if roll_int != self._last_roll_sent:
             self.rov_port.send(f"roll:{roll_int}")
